@@ -17,36 +17,37 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || "devsocial-secret-key-change-in-production";
+const JWT_SECRET =
+  process.env.JWT_SECRET || "devsocial-secret-key-change-in-production";
 
 // Production environment check
 const isProduction = process.env.NODE_ENV === "production";
 
 // CORS configuration
-const corsOrigins = process.env.CORS_ORIGINS 
-  ? process.env.CORS_ORIGINS.split(",").map(origin => origin.trim())
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
   : ["*"];
 
 const corsOptions: cors.CorsOptions = {
-  origin: isProduction 
-    ? corsOrigins 
-    : true, // Development'ta tüm origin'lere izin ver
+  origin: isProduction ? corsOrigins : true, // Development'ta tüm origin'lere izin ver
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "x-api-key", "Authorization"],
   credentials: true,
-  maxAge: 86400 // 24 saat preflight cache
+  maxAge: 86400, // 24 saat preflight cache
 };
 
 // Rate limiting configuration
 const rateLimitWindowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "60000"); // Default: 1 dakika
-const rateLimitMaxRequests = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || "100"); // Default: 100 istek
+const rateLimitMaxRequests = parseInt(
+  process.env.RATE_LIMIT_MAX_REQUESTS || "100",
+); // Default: 100 istek
 
 const apiLimiter = rateLimit({
   windowMs: rateLimitWindowMs,
   max: rateLimitMaxRequests,
   message: {
     success: false,
-    message: "Çok fazla istek gönderdiniz. Lütfen biraz bekleyin."
+    message: "Çok fazla istek gönderdiniz. Lütfen biraz bekleyin.",
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -59,7 +60,7 @@ const apiLimiter = rateLimit({
   skip: (req) => {
     // Health check endpoint'i rate limit'ten muaf
     return req.path === "/api/health";
-  }
+  },
 });
 
 // Auth endpoint'leri için daha sıkı rate limit
@@ -68,17 +69,19 @@ const authLimiter = rateLimit({
   max: 10, // 15 dakikada max 10 login/register denemesi
   message: {
     success: false,
-    message: "Çok fazla giriş denemesi. 15 dakika sonra tekrar deneyin."
+    message: "Çok fazla giriş denemesi. 15 dakika sonra tekrar deneyin.",
   },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 // Middleware
-app.use(helmet({
-  contentSecurityPolicy: isProduction ? undefined : false,
-  crossOriginEmbedderPolicy: false
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: isProduction ? undefined : false,
+    crossOriginEmbedderPolicy: false,
+  }),
+);
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 
@@ -701,114 +704,122 @@ app.delete(
 /**
  * Yeni kullanıcı oluştur (kayıt)
  */
-app.post("/api/auth/register", authLimiter, async (req: Request, res: Response) => {
-  try {
-    const { username, password, email } = req.body;
+app.post(
+  "/api/auth/register",
+  authLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      const { username, password, email } = req.body;
 
-    if (!username || username.length < 3) {
+      if (!username || username.length < 3) {
+        res.status(400).json({
+          success: false,
+          message: "Kullanıcı adı en az 3 karakter olmalı",
+        });
+        return;
+      }
+
+      if (!password || password.length < 6) {
+        res.status(400).json({
+          success: false,
+          message: "Şifre en az 6 karakter olmalı",
+        });
+        return;
+      }
+
+      if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+        res.status(400).json({
+          success: false,
+          message: "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir",
+        });
+        return;
+      }
+
+      const user = await db.createUser(username, password, email);
+
+      // JWT token oluştur
+      const token = jwt.sign(
+        { userId: user.id, username: user.username },
+        JWT_SECRET,
+        { expiresIn: "30d" },
+      );
+
+      res.json({
+        success: true,
+        message: "Kayıt başarılı!",
+        user: {
+          id: user.id,
+          username: user.username,
+          apiKey: user.apiKey,
+          email: user.email,
+        },
+        token,
+      });
+    } catch (error: any) {
+      console.error("[REGISTER ERROR]", error);
       res.status(400).json({
         success: false,
-        message: "Kullanıcı adı en az 3 karakter olmalı",
+        message: error.message || "Kayıt başarısız",
       });
-      return;
     }
-
-    if (!password || password.length < 6) {
-      res.status(400).json({
-        success: false,
-        message: "Şifre en az 6 karakter olmalı",
-      });
-      return;
-    }
-
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-      res.status(400).json({
-        success: false,
-        message: "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir",
-      });
-      return;
-    }
-
-    const user = await db.createUser(username, password, email);
-
-    // JWT token oluştur
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      JWT_SECRET,
-      { expiresIn: "30d" }
-    );
-
-    res.json({
-      success: true,
-      message: "Kayıt başarılı!",
-      user: {
-        id: user.id,
-        username: user.username,
-        apiKey: user.apiKey,
-        email: user.email,
-      },
-      token,
-    });
-  } catch (error: any) {
-    console.error("[REGISTER ERROR]", error);
-    res.status(400).json({
-      success: false,
-      message: error.message || "Kayıt başarısız",
-    });
-  }
-});
+  },
+);
 
 /**
  * Kullanıcı girişi (login)
  */
-app.post("/api/auth/login", authLimiter, async (req: Request, res: Response) => {
-  try {
-    const { username, password } = req.body;
+app.post(
+  "/api/auth/login",
+  authLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      const { username, password } = req.body;
 
-    if (!username || !password) {
-      res.status(400).json({
-        success: false,
-        message: "Kullanıcı adı ve şifre gerekli",
+      if (!username || !password) {
+        res.status(400).json({
+          success: false,
+          message: "Kullanıcı adı ve şifre gerekli",
+        });
+        return;
+      }
+
+      const user = await db.verifyPassword(username, password);
+
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          message: "Kullanıcı adı veya şifre hatalı",
+        });
+        return;
+      }
+
+      // JWT token oluştur
+      const token = jwt.sign(
+        { userId: user.id, username: user.username },
+        JWT_SECRET,
+        { expiresIn: "30d" },
+      );
+
+      res.json({
+        success: true,
+        message: "Giriş başarılı!",
+        user: {
+          id: user.id,
+          username: user.username,
+          apiKey: user.apiKey,
+          email: user.email,
+        },
+        token,
       });
-      return;
-    }
-
-    const user = await db.verifyPassword(username, password);
-
-    if (!user) {
-      res.status(401).json({
+    } catch (error: any) {
+      console.error("[LOGIN ERROR]", error);
+      res.status(500).json({
         success: false,
-        message: "Kullanıcı adı veya şifre hatalı",
+        message: "Sunucu hatası",
       });
-      return;
     }
-
-    // JWT token oluştur
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      JWT_SECRET,
-      { expiresIn: "30d" }
-    );
-
-    res.json({
-      success: true,
-      message: "Giriş başarılı!",
-      user: {
-        id: user.id,
-        username: user.username,
-        apiKey: user.apiKey,
-        email: user.email,
-      },
-      token,
-    });
-  } catch (error: any) {
-    console.error("[LOGIN ERROR]", error);
-    res.status(500).json({
-      success: false,
-      message: "Sunucu hatası",
-    });
-  }
-});
+  },
+);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
@@ -834,14 +845,18 @@ app.listen(PORT, () => {
   console.log("╠════════════════════════════════════════════════════╣");
   console.log(`║  🚀 Server running on port ${PORT}                      ║`);
   console.log(`║  📍 http://localhost:${PORT}/api                       ║`);
-  console.log(`║  🌍 Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}                        ║`);
+  console.log(
+    `║  🌍 Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}                        ║`,
+  );
   console.log("║                                                    ║");
   if (!isProduction) {
     console.log("║  ⚠️  Development mode - CORS açık                   ║");
     console.log("║  Demo API Key: dev-api-key-12345                   ║");
   } else {
     console.log("║  ✅ Production mode - CORS kısıtlı                  ║");
-    console.log(`║  Allowed origins: ${corsOrigins.join(", ").substring(0, 25)}...  ║`);
+    console.log(
+      `║  Allowed origins: ${corsOrigins.join(", ").substring(0, 25)}...  ║`,
+    );
   }
   console.log("╚════════════════════════════════════════════════════╝");
 });

@@ -21,7 +21,7 @@ class Database {
 
   private async createInitialUser(): Promise<void> {
     const hashedPassword = await bcrypt.hash("123456", 10);
-    
+
     const mainUser: User = {
       id: "user-1",
       username: "samet",
@@ -60,7 +60,11 @@ class Database {
     return this.usersByUsername.get(username.toLowerCase());
   }
 
-  async createUser(username: string, password: string, email?: string): Promise<User> {
+  async createUser(
+    username: string,
+    password: string,
+    email?: string,
+  ): Promise<User> {
     // Username benzersiz olmalı
     if (this.usersByUsername.has(username.toLowerCase())) {
       throw new Error("Bu kullanıcı adı zaten kullanılıyor");
@@ -93,7 +97,10 @@ class Database {
     return user;
   }
 
-  async verifyPassword(username: string, password: string): Promise<User | null> {
+  async verifyPassword(
+    username: string,
+    password: string,
+  ): Promise<User | null> {
     const user = this.usersByUsername.get(username.toLowerCase());
     if (!user) return null;
 
@@ -443,7 +450,11 @@ class Database {
           avatarUrl: friend.avatarUrl,
         };
       })
-      .filter((f) => f !== null) as { id: string; username: string; avatarUrl?: string }[];
+      .filter((f) => f !== null) as {
+      id: string;
+      username: string;
+      avatarUrl?: string;
+    }[];
   }
 }
 
