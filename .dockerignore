@@ -3,7 +3,7 @@ npm-debug.log
 .env
 .env.local
 .env.*.local
-src
-tsconfig.json
-*.ts
-!dist/**/*.js
+dist
+.git
+.gitignore
+README.md
