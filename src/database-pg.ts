@@ -534,9 +534,15 @@ class PostgresDatabase {
       if (friendResult.rows.length === 0) continue;
 
       const friend = friendResult.rows[0];
-      const settings = friend.settings || {};
+      // Default settings if null/undefined
+      const defaultSettings = {
+        shareActivity: true,
+        shareProjectName: true,
+        shareLanguage: true,
+      };
+      const settings = { ...defaultSettings, ...(friend.settings || {}) };
 
-      if (!settings.shareActivity) {
+      if (settings.shareActivity === false) {
         activities.push({
           username: friend.username,
           avatarUrl: friend.avatar_url,
