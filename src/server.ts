@@ -4,7 +4,7 @@ import helmet from "helmet";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
-import { db } from "./database";
+import { db } from "./database-pg";
 import { SyncRequest, SyncResponse } from "./types";
 import {
   generateSocialPost,
@@ -12,7 +12,7 @@ import {
   generateMilestonePost,
 } from "./postGenerator";
 
-// .env dosyasını yükle
+// Load .env file
 dotenv.config();
 
 const app = express();
@@ -94,28 +94,33 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// API Key doğrulama middleware
-function authenticateApiKey(
+// API Key authentication middleware
+async function authenticateApiKey(
   req: Request,
   res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   const apiKey = req.headers["x-api-key"] as string;
 
   if (!apiKey) {
-    res.status(401).json({ success: false, message: "API key gerekli" });
+    res.status(401).json({ success: false, message: "API key required" });
     return;
   }
 
-  const user = db.getUserByApiKey(apiKey);
-  if (!user) {
-    res.status(401).json({ success: false, message: "Geçersiz API key" });
-    return;
-  }
+  try {
+    const user = await db.getUserByApiKey(apiKey);
+    if (!user) {
+      res.status(401).json({ success: false, message: "Invalid API key" });
+      return;
+    }
 
-  // Request'e kullanıcı bilgisini ekle
-  (req as any).user = user;
-  next();
+    // Add user to request
+    (req as any).user = user;
+    next();
+  } catch (error) {
+    console.error("[AUTH ERROR]", error);
+    res.status(500).json({ success: false, message: "Authentication error" });
+  }
 }
 
 // ==================== API ROUTES ====================
@@ -127,7 +132,8 @@ app.get("/api/health", (req: Request, res: Response) => {
   res.json({
     status: "ok",
     timestamp: Date.now(),
-    version: "1.0.0",
+    version: "1.0.2",
+    database: "postgresql",
   });
 });
 
@@ -138,7 +144,7 @@ app.get("/api/health", (req: Request, res: Response) => {
 app.post(
   "/api/activity/sync",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { summary, heartbeats }: SyncRequest = req.body;
@@ -147,16 +153,16 @@ app.post(
         `[SYNC] User: ${user.username}, Heartbeats: ${heartbeats?.length || 0}`,
       );
 
-      // Güvenlik: Sadece metadata kabul et, kod içeriği yok
+      // Security: Only accept metadata, no code content
       if (!summary || typeof summary.totalActiveSeconds !== "number") {
         res.status(400).json({
           success: false,
-          message: "Geçersiz veri formatı",
+          message: "Invalid data format",
         });
         return;
       }
 
-      // Aktiviteyi güncelle
+      // Update activity
       const projectsMap = new Map<string, number>();
       const languagesMap = new Map<string, number>();
 
@@ -168,22 +174,22 @@ app.post(
         languagesMap.set(l.language, l.activeSeconds);
       });
 
-      db.updateActivity(
+      await db.updateActivity(
         user.id,
         summary.totalActiveSeconds,
         projectsMap,
         languagesMap,
       );
 
-      // Güncel verileri al
-      const todayActivity = db.getTodayActivity(user.id);
-      const weekTotal = db.getWeekActivity(user.id);
-      const friendsActivity = db.getFriendsActivity(user.id);
+      // Get updated data
+      const todayActivity = await db.getTodayActivity(user.id);
+      const weekTotal = await db.getWeekActivity(user.id);
+      const friendsActivity = await db.getFriendsActivity(user.id);
 
-      // Yanıt
+      // Response
       const response: SyncResponse = {
         success: true,
-        message: "Senkronizasyon başarılı",
+        message: "Sync successful",
         data: {
           todayTotal: todayActivity?.totalSeconds || 0,
           weekTotal: weekTotal,
@@ -196,22 +202,22 @@ app.post(
       console.error("[SYNC ERROR]", error);
       res.status(500).json({
         success: false,
-        message: "Sunucu hatası",
+        message: "Server error",
       });
     }
   },
 );
 
 /**
- * Arkadaş aktivitelerini getir
+ * Get friends activity
  */
 app.get(
   "/api/activity/friends",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const friendsActivity = db.getFriendsActivity(user.id);
+      const friendsActivity = await db.getFriendsActivity(user.id);
 
       res.json({
         success: true,
@@ -221,23 +227,23 @@ app.get(
       console.error("[FRIENDS ERROR]", error);
       res.status(500).json({
         success: false,
-        message: "Sunucu hatası",
+        message: "Server error",
       });
     }
   },
 );
 
 /**
- * Kullanıcı istatistiklerini getir
+ * Get user statistics
  */
 app.get(
   "/api/activity/stats",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const todayActivity = db.getTodayActivity(user.id);
-      const weekTotal = db.getWeekActivity(user.id);
+      const todayActivity = await db.getTodayActivity(user.id);
+      const weekTotal = await db.getWeekActivity(user.id);
 
       res.json({
         success: true,
@@ -260,28 +266,28 @@ app.get(
       console.error("[STATS ERROR]", error);
       res.status(500).json({
         success: false,
-        message: "Sunucu hatası",
+        message: "Server error",
       });
     }
   },
 );
 
 /**
- * Sosyal medya postu oluştur (preview)
+ * Generate social media post (preview)
  */
 app.get(
   "/api/post/preview",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const platform = (req.query.platform as string) || "twitter";
-      const todayActivity = db.getTodayActivity(user.id);
+      const todayActivity = await db.getTodayActivity(user.id);
 
       if (!todayActivity || todayActivity.totalSeconds < 60) {
         res.json({
           success: false,
-          message: "Yeterli aktivite verisi yok (minimum 1 dakika gerekli)",
+          message: "Not enough activity data (minimum 1 minute required)",
         });
         return;
       }
@@ -302,33 +308,33 @@ app.get(
       console.error("[POST PREVIEW ERROR]", error);
       res.status(500).json({
         success: false,
-        message: "Sunucu hatası",
+        message: "Server error",
       });
     }
   },
 );
 
 /**
- * Haftalık özet postu
+ * Weekly summary post
  */
 app.get(
   "/api/post/weekly",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const weekTotal = db.getWeekActivity(user.id);
-      const todayActivity = db.getTodayActivity(user.id);
+      const weekTotal = await db.getWeekActivity(user.id);
+      const todayActivity = await db.getTodayActivity(user.id);
 
       if (weekTotal < 60) {
         res.json({
           success: false,
-          message: "Yeterli haftalık aktivite verisi yok",
+          message: "Not enough weekly activity data",
         });
         return;
       }
 
-      // Basitleştirilmiş versiyon (gerçek uygulamada haftalık agregasyon yapılır)
+      // Simplified version (real app would aggregate weekly data)
       const topProjects: { name: string; seconds: number }[] = [];
       const topLanguages: { name: string; seconds: number }[] = [];
 
@@ -426,21 +432,21 @@ app.patch(
       console.error("[SETTINGS ERROR]", error);
       res.status(500).json({
         success: false,
-        message: "Sunucu hatası",
+        message: "Server error",
       });
     }
   },
 );
 
-// ==================== ARKADAŞLIK API'LERİ ====================
+// ==================== FRIENDS API ====================
 
 /**
- * Kullanıcı ara (arkadaş eklemek için)
+ * Search users (for adding friends)
  */
 app.get(
   "/api/users/search",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const query = req.query.q as string;
@@ -453,7 +459,7 @@ app.get(
         return;
       }
 
-      const results = db.searchUsers(query, user.id);
+      const results = await db.searchUsers(query, user.id);
 
       res.json({
         success: true,
@@ -467,34 +473,34 @@ app.get(
       console.error("[SEARCH ERROR]", error);
       res.status(500).json({
         success: false,
-        message: "Sunucu hatası",
+        message: "Server error",
       });
     }
   },
 );
 
 /**
- * Arkadaşlık isteği gönder
+ * Send friend request
  */
 app.post(
   "/api/friends/request",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { userId, username } = req.body;
 
       let targetUser;
       if (userId) {
-        targetUser = db.getUserById(userId);
+        targetUser = await db.getUserById(userId);
       } else if (username) {
-        targetUser = db.getUserByUsername(username);
+        targetUser = await db.getUserByUsername(username);
       }
 
       if (!targetUser) {
         res.status(404).json({
           success: false,
-          message: "Kullanıcı bulunamadı",
+          message: "User not found",
         });
         return;
       }
@@ -502,16 +508,16 @@ app.post(
       if (targetUser.id === user.id) {
         res.status(400).json({
           success: false,
-          message: "Kendinize arkadaşlık isteği gönderemezsiniz",
+          message: "Cannot send friend request to yourself",
         });
         return;
       }
 
-      const request = db.sendFriendRequest(user.id, targetUser.id);
+      const request = await db.sendFriendRequest(user.id, targetUser.username);
 
       res.json({
         success: true,
-        message: `${targetUser.username} kullanıcısına arkadaşlık isteği gönderildi`,
+        message: `Friend request sent to ${targetUser.username}`,
         request: {
           id: request.id,
           toUsername: targetUser.username,
@@ -523,186 +529,127 @@ app.post(
       console.error("[FRIEND REQUEST ERROR]", error);
       res.status(400).json({
         success: false,
-        message: error.message || "İstek gönderilemedi",
+        message: error.message || "Failed to send request",
       });
     }
   },
 );
 
 /**
- * Gelen arkadaşlık isteklerini getir
+ * Get incoming friend requests
  */
 app.get(
   "/api/friends/requests/incoming",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const requests = db.getIncomingFriendRequests(user.id);
+      const requests = await db.getIncomingFriendRequests(user.id);
 
       res.json({
         success: true,
-        requests: requests.map((r) => {
-          const fromUser = db.getUserById(r.fromUserId);
-          return {
-            id: r.id,
-            fromUserId: r.fromUserId,
-            fromUsername: fromUser?.username || "Bilinmeyen",
-            fromAvatarUrl: fromUser?.avatarUrl,
-            createdAt: r.createdAt,
-          };
-        }),
+        requests: requests.map((r) => ({
+          id: r.id,
+          fromUserId: r.fromUserId,
+          fromUsername: r.fromUsername,
+          createdAt: r.createdAt,
+        })),
       });
     } catch (error) {
       console.error("[INCOMING REQUESTS ERROR]", error);
       res.status(500).json({
         success: false,
-        message: "Sunucu hatası",
+        message: "Server error",
       });
     }
   },
 );
 
 /**
- * Giden arkadaşlık isteklerini getir
- */
-app.get(
-  "/api/friends/requests/outgoing",
-  authenticateApiKey,
-  (req: Request, res: Response) => {
-    try {
-      const user = (req as any).user;
-      const requests = db.getOutgoingFriendRequests(user.id);
-
-      res.json({
-        success: true,
-        requests: requests.map((r) => {
-          const toUser = db.getUserById(r.toUserId);
-          return {
-            id: r.id,
-            toUserId: r.toUserId,
-            toUsername: toUser?.username || "Bilinmeyen",
-            toAvatarUrl: toUser?.avatarUrl,
-            createdAt: r.createdAt,
-          };
-        }),
-      });
-    } catch (error) {
-      console.error("[OUTGOING REQUESTS ERROR]", error);
-      res.status(500).json({
-        success: false,
-        message: "Sunucu hatası",
-      });
-    }
-  },
-);
-
-/**
- * Arkadaşlık isteğini kabul et
+ * Accept friend request
  */
 app.post(
   "/api/friends/requests/:requestId/accept",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { requestId } = req.params;
 
-      db.acceptFriendRequest(requestId, user.id);
+      await db.acceptFriendRequest(requestId, user.id);
 
       res.json({
         success: true,
-        message: "Arkadaşlık isteği kabul edildi",
+        message: "Friend request accepted",
       });
     } catch (error: any) {
       console.error("[ACCEPT REQUEST ERROR]", error);
       res.status(400).json({
         success: false,
-        message: error.message || "İstek kabul edilemedi",
+        message: error.message || "Failed to accept request",
       });
     }
   },
 );
 
 /**
- * Arkadaşlık isteğini reddet
+ * Reject friend request
  */
 app.post(
   "/api/friends/requests/:requestId/reject",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { requestId } = req.params;
 
-      db.rejectFriendRequest(requestId, user.id);
+      await db.rejectFriendRequest(requestId, user.id);
 
       res.json({
         success: true,
-        message: "Arkadaşlık isteği reddedildi",
+        message: "Friend request rejected",
       });
     } catch (error: any) {
       console.error("[REJECT REQUEST ERROR]", error);
       res.status(400).json({
         success: false,
-        message: error.message || "İstek reddedilemedi",
+        message: error.message || "Failed to reject request",
       });
     }
   },
 );
 
 /**
- * Arkadaş listesini getir
- */
-app.get("/api/friends", authenticateApiKey, (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-    const friends = db.getFriendsList(user.id);
-
-    res.json({
-      success: true,
-      friends: friends,
-    });
-  } catch (error) {
-    console.error("[FRIENDS LIST ERROR]", error);
-    res.status(500).json({
-      success: false,
-      message: "Sunucu hatası",
-    });
-  }
-});
-
-/**
- * Arkadaşı çıkar
+ * Remove friend
  */
 app.delete(
   "/api/friends/:friendId",
   authenticateApiKey,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { friendId } = req.params;
 
-      db.removeFriend(user.id, friendId);
+      await db.removeFriend(user.id, friendId);
 
       res.json({
         success: true,
-        message: "Arkadaş listeden çıkarıldı",
+        message: "Friend removed",
       });
     } catch (error: any) {
       console.error("[REMOVE FRIEND ERROR]", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Arkadaş çıkarılamadı",
+        message: error.message || "Failed to remove friend",
       });
     }
   },
 );
 
-// ==================== KULLANICI KAYIT & GİRİŞ ====================
+// ==================== USER REGISTRATION & LOGIN ====================
 
 /**
- * Yeni kullanıcı oluştur (kayıt)
+ * Register new user
  */
 app.post(
   "/api/auth/register",
@@ -714,7 +661,7 @@ app.post(
       if (!username || username.length < 3) {
         res.status(400).json({
           success: false,
-          message: "Kullanıcı adı en az 3 karakter olmalı",
+          message: "Username must be at least 3 characters",
         });
         return;
       }
@@ -722,7 +669,7 @@ app.post(
       if (!password || password.length < 6) {
         res.status(400).json({
           success: false,
-          message: "Şifre en az 6 karakter olmalı",
+          message: "Password must be at least 6 characters",
         });
         return;
       }
@@ -730,14 +677,14 @@ app.post(
       if (!/^[a-zA-Z0-9_]+$/.test(username)) {
         res.status(400).json({
           success: false,
-          message: "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir",
+          message: "Username can only contain letters, numbers and underscores",
         });
         return;
       }
 
       const user = await db.createUser(username, password, email);
 
-      // JWT token oluştur
+      // Create JWT token
       const token = jwt.sign(
         { userId: user.id, username: user.username },
         JWT_SECRET,
@@ -746,7 +693,7 @@ app.post(
 
       res.json({
         success: true,
-        message: "Kayıt başarılı!",
+        message: "Registration successful!",
         user: {
           id: user.id,
           username: user.username,
@@ -759,14 +706,14 @@ app.post(
       console.error("[REGISTER ERROR]", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Kayıt başarısız",
+        message: error.message || "Registration failed",
       });
     }
   },
 );
 
 /**
- * Kullanıcı girişi (login)
+ * User login
  */
 app.post(
   "/api/auth/login",
@@ -778,22 +725,31 @@ app.post(
       if (!username || !password) {
         res.status(400).json({
           success: false,
-          message: "Kullanıcı adı ve şifre gerekli",
+          message: "Username and password required",
         });
         return;
       }
 
-      const user = await db.verifyPassword(username, password);
+      const user = await db.getUserByUsername(username);
 
       if (!user) {
         res.status(401).json({
           success: false,
-          message: "Kullanıcı adı veya şifre hatalı",
+          message: "Invalid username or password",
         });
         return;
       }
 
-      // JWT token oluştur
+      const isValid = await db.verifyPassword(user, password);
+      if (!isValid) {
+        res.status(401).json({
+          success: false,
+          message: "Invalid username or password",
+        });
+        return;
+      }
+
+      // Create JWT token
       const token = jwt.sign(
         { userId: user.id, username: user.username },
         JWT_SECRET,
@@ -802,7 +758,7 @@ app.post(
 
       res.json({
         success: true,
-        message: "Giriş başarılı!",
+        message: "Login successful!",
         user: {
           id: user.id,
           username: user.username,
@@ -815,7 +771,7 @@ app.post(
       console.error("[LOGIN ERROR]", error);
       res.status(500).json({
         success: false,
-        message: "Sunucu hatası",
+        message: "Server error",
       });
     }
   },
@@ -825,7 +781,7 @@ app.post(
 app.use((req: Request, res: Response) => {
   res.status(404).json({
     success: false,
-    message: "Endpoint bulunamadı",
+    message: "Endpoint not found",
   });
 });
 
@@ -834,31 +790,35 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error("[ERROR]", err);
   res.status(500).json({
     success: false,
-    message: "Sunucu hatası",
+    message: "Server error",
   });
 });
 
-// Server'ı başlat
-app.listen(PORT, () => {
-  console.log("╔════════════════════════════════════════════════════╗");
-  console.log("║            DevSocial Backend API                   ║");
-  console.log("╠════════════════════════════════════════════════════╣");
-  console.log(`║  🚀 Server running on port ${PORT}                      ║`);
-  console.log(`║  📍 http://localhost:${PORT}/api                       ║`);
-  console.log(
-    `║  🌍 Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}                        ║`,
-  );
-  console.log("║                                                    ║");
-  if (!isProduction) {
-    console.log("║  ⚠️  Development mode - CORS açık                   ║");
-    console.log("║  Demo API Key: dev-api-key-12345                   ║");
-  } else {
-    console.log("║  ✅ Production mode - CORS kısıtlı                  ║");
-    console.log(
-      `║  Allowed origins: ${corsOrigins.join(", ").substring(0, 25)}...  ║`,
-    );
+// Start server with database initialization
+async function startServer() {
+  try {
+    // Initialize PostgreSQL database
+    await db.initialize();
+    console.log("[DB] PostgreSQL connected successfully");
+
+    // Start Express server
+    const port = typeof PORT === 'string' ? parseInt(PORT, 10) : PORT;
+    app.listen(port, "0.0.0.0", () => {
+      console.log("╔════════════════════════════════════════════════════╗");
+      console.log("║            DevSocial Backend API                   ║");
+      console.log("╠════════════════════════════════════════════════════╣");
+      console.log(`║  Server running on port ${port}                        ║`);
+      console.log(`║  http://localhost:${port}/api                          ║`);
+      console.log(`║  Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}                              ║`);
+      console.log("║  Database: PostgreSQL (Neon)                       ║");
+      console.log("╚════════════════════════════════════════════════════╝");
+    });
+  } catch (error) {
+    console.error("[FATAL] Failed to start server:", error);
+    process.exit(1);
   }
-  console.log("╚════════════════════════════════════════════════════╝");
-});
+}
+
+startServer();
 
 export default app;
