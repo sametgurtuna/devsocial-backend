@@ -802,14 +802,16 @@ async function startServer() {
     console.log("[DB] PostgreSQL connected successfully");
 
     // Start Express server
-    const port = typeof PORT === 'string' ? parseInt(PORT, 10) : PORT;
+    const port = typeof PORT === "string" ? parseInt(PORT, 10) : PORT;
     app.listen(port, "0.0.0.0", () => {
       console.log("╔════════════════════════════════════════════════════╗");
       console.log("║            DevSocial Backend API                   ║");
       console.log("╠════════════════════════════════════════════════════╣");
       console.log(`║  Server running on port ${port}                        ║`);
       console.log(`║  http://localhost:${port}/api                          ║`);
-      console.log(`║  Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}                              ║`);
+      console.log(
+        `║  Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}                              ║`,
+      );
       console.log("║  Database: PostgreSQL (Neon)                       ║");
       console.log("╚════════════════════════════════════════════════════╝");
     });
