@@ -37,17 +37,17 @@ const corsOptions: cors.CorsOptions = {
 };
 
 // Rate limiting configuration
-const rateLimitWindowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "60000"); // Default: 1 dakika
+const rateLimitWindowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "60000"); // Default: 1 minute
 const rateLimitMaxRequests = parseInt(
   process.env.RATE_LIMIT_MAX_REQUESTS || "100",
-); // Default: 100 istek
+); // Default: 100 requests
 
 const apiLimiter = rateLimit({
   windowMs: rateLimitWindowMs,
   max: rateLimitMaxRequests,
   message: {
     success: false,
-    message: "Çok fazla istek gönderdiniz. Lütfen biraz bekleyin.",
+    message: "Too many requests. Please wait a moment.",
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -63,13 +63,13 @@ const apiLimiter = rateLimit({
   },
 });
 
-// Auth endpoint'leri için daha sıkı rate limit
+// Stricter rate limit for auth endpoints
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 dakika
-  max: 10, // 15 dakikada max 10 login/register denemesi
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Max 10 login/register attempts in 15 minutes
   message: {
     success: false,
-    message: "Çok fazla giriş denemesi. 15 dakika sonra tekrar deneyin.",
+    message: "Too many login attempts. Please try again in 15 minutes.",
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -132,7 +132,7 @@ app.get("/api/health", (req: Request, res: Response) => {
   res.json({
     status: "ok",
     timestamp: Date.now(),
-    version: "1.0.2",
+    version: "1.0.4",
     database: "postgresql",
   });
 });

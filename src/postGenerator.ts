@@ -1,11 +1,11 @@
 import { DailyActivity } from './types';
 
 /**
- * Sosyal Medya Post Oluşturucu
- * Aktivite verilerini insanların okuyabileceği postlara dönüştürür
+ * Social Media Post Generator
+ * Converts activity data to human-readable posts
  */
 
-// Dil isimlerini Türkçeleştir
+// Language display names
 const languageNames: Record<string, string> = {
     'typescript': 'TypeScript',
     'javascript': 'JavaScript',
@@ -33,35 +33,35 @@ const languageNames: Record<string, string> = {
     'dockerfile': 'Docker',
     'vue': 'Vue.js',
     'svelte': 'Svelte',
-    'plaintext': 'Metin'
+    'plaintext': 'Text'
 };
 
-// Süreyi insanların okuyabileceği formata çevir
+// Format duration to human-readable string
 function formatDuration(seconds: number): string {
     if (seconds < 60) {
-        return `${seconds} saniye`;
+        return `${seconds} seconds`;
     }
     
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     
     if (hours === 0) {
-        return `${minutes} dakika`;
+        return `${minutes} minutes`;
     }
     
     if (minutes === 0) {
-        return `${hours} saat`;
+        return `${hours} hours`;
     }
     
-    return `${hours} saat ${minutes} dakika`;
+    return `${hours}h ${minutes}m`;
 }
 
-// Dil adını formatla
+// Get language display name
 function getLanguageName(langId: string): string {
     return languageNames[langId.toLowerCase()] || langId;
 }
 
-// Emoji seç
+// Get activity emoji based on hours
 function getActivityEmoji(hours: number): string {
     if (hours >= 8) return '🔥';
     if (hours >= 4) return '💪';
@@ -94,8 +94,8 @@ function getLanguageEmoji(language: string): string {
 }
 
 /**
- * Ana post oluşturma fonksiyonu
- * Ham veriyi sosyal medya postuna dönüştürür
+ * Main post generation function
+ * Converts raw data to social media posts
  */
 export function generateSocialPost(
     username: string,
@@ -112,7 +112,7 @@ export function generateSocialPost(
     const emoji = getActivityEmoji(hours);
     const duration = formatDuration(activity.totalSeconds);
 
-    // En çok çalışılan projeyi bul
+    // Find most worked project
     let mainProject = '';
     let maxProjectSeconds = 0;
     activity.projects.forEach((seconds, project) => {
@@ -122,48 +122,48 @@ export function generateSocialPost(
         }
     });
 
-    // En çok kullanılan dilleri bul
+    // Find most used languages
     const languages: { name: string; seconds: number }[] = [];
     activity.languages.forEach((seconds, lang) => {
         languages.push({ name: lang, seconds });
     });
     languages.sort((a, b) => b.seconds - a.seconds);
 
-    // Post şablonları
+    // Post templates
     const templates = {
-        // Proje ve dil bilgisi ile
+        // With project and language info
         full: [
-            `${emoji} ${username} bugün ${mainProject} üzerinde ${duration} kod yazdı! ${getLanguageEmoji(languages[0]?.name || '')}`,
-            `${emoji} Bugünkü kodlama maratonu: ${duration} ${mainProject} projesinde! #DevSocial`,
-            `${emoji} ${username} ${duration}dır ${mainProject} projesinde çalışıyor! Harika iş! 🚀`,
-            `🎯 ${username} bugün ${mainProject} üzerinde ${duration} geçirdi. ${languages.slice(0, 2).map(l => getLanguageName(l.name)).join(' ve ')} ile!`,
+            `${emoji} ${username} coded for ${duration} on ${mainProject} today! ${getLanguageEmoji(languages[0]?.name || '')}`,
+            `${emoji} Today's coding marathon: ${duration} on ${mainProject}! #DevSocial`,
+            `${emoji} ${username} has been working on ${mainProject} for ${duration}! Great job! 🚀`,
+            `🎯 ${username} spent ${duration} on ${mainProject} today. Using ${languages.slice(0, 2).map(l => getLanguageName(l.name)).join(' and ')}!`,
         ],
         
-        // Sadece süre
+        // Duration only
         simple: [
-            `${emoji} ${username} bugün ${duration} kod yazdı! #coding #DevSocial`,
-            `${emoji} Günlük kodlama: ${duration}! Hedeflere doğru ilerliyoruz 🚀`,
-            `💻 ${username} bugün ${duration} kodlama yaptı! #developer`,
+            `${emoji} ${username} coded for ${duration} today! #coding #DevSocial`,
+            `${emoji} Daily coding: ${duration}! Making progress 🚀`,
+            `💻 ${username} coded for ${duration} today! #developer`,
         ],
         
-        // Dil odaklı
+        // Language focused
         languageFocused: [
-            `${getLanguageEmoji(languages[0]?.name || '')} ${username} bugün ${getLanguageName(languages[0]?.name || '')} ile ${duration} geçirdi!`,
-            `${emoji} ${duration} ${languages.slice(0, 2).map(l => getLanguageName(l.name)).join(' + ')} kodlaması! #DevSocial`,
+            `${getLanguageEmoji(languages[0]?.name || '')} ${username} spent ${duration} with ${getLanguageName(languages[0]?.name || '')} today!`,
+            `${emoji} ${duration} of ${languages.slice(0, 2).map(l => getLanguageName(l.name)).join(' + ')} coding! #DevSocial`,
         ],
 
-        // Motivasyon
+        // Motivational
         motivational: [
-            `${emoji} Her satır kod bir adım ileri! ${username} bugün ${duration} ilerledi. Sen de katıl! 🚀`,
-            `💪 Tutarlılık anahtardır. ${username} bugün de ${duration} kod yazdı! #NeverStopLearning`,
-            `🌟 Harika iş ${username}! ${duration} üretken çalışma. Böyle devam! 💻`,
+            `${emoji} Every line of code is a step forward! ${username} made ${duration} of progress today. Join in! 🚀`,
+            `💪 Consistency is key. ${username} coded for ${duration} today! #NeverStopLearning`,
+            `🌟 Great job ${username}! ${duration} of productive work. Keep it up! 💻`,
         ]
     };
 
-    // Platform bazlı uzunluk kontrolü
+    // Platform-based length limit
     const maxLength = platform === 'twitter' ? 280 : platform === 'discord' ? 2000 : 3000;
 
-    // Şablon seç
+    // Select template
     let templateCategory: keyof typeof templates;
     
     if (includeProject && mainProject && includeLanguages && languages.length > 0) {
@@ -177,16 +177,16 @@ export function generateSocialPost(
     const selectedTemplates = templates[templateCategory];
     let post = selectedTemplates[Math.floor(Math.random() * selectedTemplates.length)];
 
-    // Dil listesi ekle (LinkedIn için)
+    // Add language breakdown (for LinkedIn)
     if (platform === 'linkedin' && includeLanguages && languages.length > 1) {
         const langList = languages.slice(0, 5).map(l => 
             `• ${getLanguageName(l.name)}: ${formatDuration(l.seconds)}`
         ).join('\n');
         
-        post += `\n\n📊 Bugünkü dil dağılımı:\n${langList}`;
+        post += `\n\n📊 Today's language breakdown:\n${langList}`;
     }
 
-    // Hashtag ekle
+    // Add hashtags
     if (platform === 'twitter' && post.length < 250) {
         const hashtags = ['#coding', '#developer', '#DevSocial'];
         if (languages[0]) {
@@ -203,7 +203,7 @@ export function generateSocialPost(
 }
 
 /**
- * Haftalık özet postu oluştur
+ * Generate weekly summary post
  */
 export function generateWeeklySummary(
     username: string,
@@ -214,11 +214,11 @@ export function generateWeeklySummary(
     const hours = Math.floor(weeklySeconds / 3600);
     const emoji = getActivityEmoji(hours);
 
-    let post = `📅 Haftalık Özet | ${username}\n\n`;
-    post += `${emoji} Toplam: ${formatDuration(weeklySeconds)}\n\n`;
+    let post = `📅 Weekly Summary | ${username}\n\n`;
+    post += `${emoji} Total: ${formatDuration(weeklySeconds)}\n\n`;
 
     if (topProjects.length > 0) {
-        post += `🎯 En Aktif Projeler:\n`;
+        post += `🎯 Most Active Projects:\n`;
         topProjects.slice(0, 3).forEach((p, i) => {
             post += `${i + 1}. ${p.name} (${formatDuration(p.seconds)})\n`;
         });
@@ -226,7 +226,7 @@ export function generateWeeklySummary(
     }
 
     if (topLanguages.length > 0) {
-        post += `💻 Kullanılan Diller:\n`;
+        post += `💻 Languages Used:\n`;
         topLanguages.slice(0, 5).forEach(l => {
             post += `${getLanguageEmoji(l.name)} ${getLanguageName(l.name)}: ${formatDuration(l.seconds)}\n`;
         });
@@ -238,18 +238,18 @@ export function generateWeeklySummary(
 }
 
 /**
- * Özel milestone postları
+ * Special milestone posts
  */
 export function generateMilestonePost(
     username: string,
     milestone: 'first_hour' | 'streak_7' | 'streak_30' | 'total_100h' | 'total_1000h'
 ): string {
     const milestones: Record<string, string> = {
-        'first_hour': `🎉 ${username} DevSocial'de ilk 1 saatlik kodlama seansını tamamladı! Başlangıç her zaman en zor adımdır. 💪 #FirstStep`,
-        'streak_7': `🔥 7 günlük seri! ${username} tam 1 haftadır her gün kod yazıyor. Tutarlılık başarının anahtarı! 🚀 #CodingStreak`,
-        'streak_30': `🏆 İNANILMAZ! ${username} 30 günlük kodlama serisi yakaladı! Bu bir şampiyon performansı! 🌟 #30DayStreak`,
-        'total_100h': `💯 ${username} toplamda 100 saat kodlama süresine ulaştı! Bu ciddi bir bağlılık göstergesi. 🎯 #100HoursOfCode`,
-        'total_1000h': `🏅 EFSANE! ${username} 1000 saat kodlama süresini aştı! Gerçek bir kod ustası! 👑 #1000HoursOfCode`
+        'first_hour': `🎉 ${username} completed their first 1-hour coding session on DevSocial! The first step is always the hardest. 💪 #FirstStep`,
+        'streak_7': `🔥 7-day streak! ${username} has been coding every day for a full week. Consistency is the key to success! 🚀 #CodingStreak`,
+        'streak_30': `🏆 INCREDIBLE! ${username} achieved a 30-day coding streak! This is champion-level performance! 🌟 #30DayStreak`,
+        'total_100h': `💯 ${username} reached 100 total hours of coding! This shows serious dedication. 🎯 #100HoursOfCode`,
+        'total_1000h': `🏅 LEGENDARY! ${username} surpassed 1000 hours of coding! A true code master! 👑 #1000HoursOfCode`
     };
 
     return milestones[milestone] || '';
