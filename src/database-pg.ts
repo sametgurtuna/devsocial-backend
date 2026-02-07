@@ -573,76 +573,60 @@ class PostgresDatabase {
   // ==================== FRIENDS ACTIVITY ====================
 
   async getFriendsActivity(userId: string): Promise<FriendActivity[]> {
-    // Get user's friends
-    const friendsResult = await this.pool.query(
-      "SELECT friend_id FROM friendships WHERE user_id = $1",
-      [userId],
+    const today = this.getDateKey();
+    const now = Date.now();
+    const idleThreshold = 2 * 60 * 1000; // 2 minutes
+    const offlineThreshold = 5 * 60 * 1000; // 5 minutes
+
+    // Single JOIN query instead of N+1
+    const result = await this.pool.query(
+      `SELECT u.id, u.username, u.avatar_url, u.settings,
+              da.total_seconds, da.projects, da.languages, da.last_update
+       FROM friendships f
+       JOIN users u ON u.id = f.friend_id
+       LEFT JOIN daily_activities da ON da.user_id = f.friend_id AND da.date = $2
+       WHERE f.user_id = $1`,
+      [userId, today],
     );
 
-    if (friendsResult.rows.length === 0) {
+    if (result.rows.length === 0) {
       return [];
     }
 
-    const friendIds = friendsResult.rows.map((r: any) => r.friend_id);
-    const now = Date.now();
-    const today = this.getDateKey();
-    const idleThreshold = 2 * 60 * 1000; // 2 minutes - shows as online
-    const offlineThreshold = 5 * 60 * 1000; // 5 minutes - shows as idle, then offline
-
-    const activities: FriendActivity[] = [];
-
-    for (const friendId of friendIds) {
-      const friendResult = await this.pool.query(
-        "SELECT * FROM users WHERE id = $1",
-        [friendId],
-      );
-
-      if (friendResult.rows.length === 0) continue;
-
-      const friend = friendResult.rows[0];
-      // Default settings if null/undefined
+    const activities: FriendActivity[] = result.rows.map((row: any) => {
       const defaultSettings = {
         shareActivity: true,
         shareProjectName: true,
         shareLanguage: true,
       };
-      const settings = { ...defaultSettings, ...(friend.settings || {}) };
+      const settings = { ...defaultSettings, ...(row.settings || {}) };
 
       if (settings.shareActivity === false) {
-        activities.push({
-          username: friend.username,
-          avatarUrl: friend.avatar_url,
+        return {
+          id: row.id,
+          username: row.username,
+          avatarUrl: row.avatar_url,
           activeSeconds: 0,
           lastActive: 0,
-          status: "offline",
-        });
-        continue;
+          status: "offline" as const,
+        };
       }
 
-      // Get today's activity
-      const activityResult = await this.pool.query(
-        "SELECT * FROM daily_activities WHERE user_id = $1 AND date = $2",
-        [friendId, today],
-      );
-
-      const todayActivity = activityResult.rows[0];
-      const lastUpdate = todayActivity
-        ? parseInt(todayActivity.last_update)
-        : 0;
+      const lastUpdate = row.last_update ? parseInt(row.last_update) : 0;
       const timeSinceActive = now - lastUpdate;
 
       let status: "online" | "idle" | "offline" = "offline";
-      if (todayActivity && timeSinceActive < idleThreshold) {
+      if (row.total_seconds && timeSinceActive < idleThreshold) {
         status = "online";
-      } else if (todayActivity && timeSinceActive < offlineThreshold) {
+      } else if (row.total_seconds && timeSinceActive < offlineThreshold) {
         status = "idle";
       }
 
       let currentProject: string | undefined;
       let currentLanguage: string | undefined;
 
-      if (settings.shareProjectName && todayActivity?.projects) {
-        const projects = todayActivity.projects;
+      if (settings.shareProjectName && row.projects) {
+        const projects = row.projects;
         let maxSeconds = 0;
         for (const [proj, secs] of Object.entries(projects)) {
           if ((secs as number) > maxSeconds) {
@@ -652,8 +636,8 @@ class PostgresDatabase {
         }
       }
 
-      if (settings.shareLanguage && todayActivity?.languages) {
-        const languages = todayActivity.languages;
+      if (settings.shareLanguage && row.languages) {
+        const languages = row.languages;
         let maxSeconds = 0;
         for (const [lang, secs] of Object.entries(languages)) {
           if ((secs as number) > maxSeconds) {
@@ -663,16 +647,17 @@ class PostgresDatabase {
         }
       }
 
-      activities.push({
-        username: friend.username,
-        avatarUrl: friend.avatar_url,
+      return {
+        id: row.id,
+        username: row.username,
+        avatarUrl: row.avatar_url,
         currentProject,
         currentLanguage,
-        activeSeconds: todayActivity?.total_seconds || 0,
+        activeSeconds: row.total_seconds || 0,
         lastActive: lastUpdate,
         status,
-      });
-    }
+      };
+    });
 
     // Sort by status (online first) then by active seconds
     return activities.sort((a, b) => {

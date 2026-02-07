@@ -54,6 +54,7 @@ export interface SyncResponse {
 
 // Arkadaş aktivitesi
 export interface FriendActivity {
+  id: string;
   username: string;
   avatarUrl?: string;
   currentProject?: string;
