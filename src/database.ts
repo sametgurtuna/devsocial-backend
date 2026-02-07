@@ -28,6 +28,7 @@ class Database {
       password: hashedPassword,
       apiKey: "dev-api-key-12345",
       email: "samet@example.com",
+      avatarId: "default",
       friends: [],
       createdAt: Date.now(),
       settings: {
@@ -78,6 +79,7 @@ class Database {
       password: hashedPassword,
       apiKey: uuidv4(),
       email,
+      avatarId: "default",
       friends: [],
       createdAt: Date.now(),
       settings: {

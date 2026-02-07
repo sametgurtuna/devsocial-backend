@@ -71,6 +71,7 @@ export interface User {
   apiKey: string;
   email?: string;
   avatarUrl?: string;
+  avatarId: string;
   friends: string[];
   createdAt: number;
   settings: UserSettings;
@@ -114,3 +115,90 @@ export interface SocialPost {
   posted: boolean;
   postedAt?: number;
 }
+
+// Saatlik aktivite kaydı
+export interface HourlyActivity {
+  date: string; // YYYY-MM-DD
+  hour: number; // 0-23
+  totalSeconds: number;
+  projects?: Record<string, number>;
+  languages?: Record<string, number>;
+}
+
+// Achievement tanımı
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: "time" | "streak" | "language" | "social" | "special";
+  thresholdType: string;
+  thresholdValue: number;
+}
+
+// Kullanıcı achievement'ı
+export interface UserAchievement {
+  achievementId: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: string;
+  unlockedAt: number;
+}
+
+// Chat mesajı
+export interface ChatMessage {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  content: string;
+  createdAt: number;
+  readAt?: number;
+  fromUsername?: string;
+}
+
+// Dil dağılımı istatistiği
+export interface LanguageStats {
+  name: string;
+  totalSeconds: number;
+  percentage: number;
+}
+
+// Predefined avatar tanımı
+export interface AvatarDefinition {
+  id: string;
+  emoji: string;
+  name: string;
+  category: string;
+}
+
+// Predefined avatar listesi
+export const PREDEFINED_AVATARS: AvatarDefinition[] = [
+  // Hayvanlar
+  { id: "fox", emoji: "🦊", name: "Fox", category: "animals" },
+  { id: "cat", emoji: "🐱", name: "Cat", category: "animals" },
+  { id: "dog", emoji: "🐶", name: "Dog", category: "animals" },
+  { id: "panda", emoji: "🐼", name: "Panda", category: "animals" },
+  { id: "unicorn", emoji: "🦄", name: "Unicorn", category: "animals" },
+  { id: "dragon", emoji: "🐉", name: "Dragon", category: "animals" },
+  { id: "owl", emoji: "🦉", name: "Owl", category: "animals" },
+  // Karakterler
+  { id: "ninja", emoji: "🥷", name: "Ninja", category: "characters" },
+  { id: "astronaut", emoji: "🧑‍🚀", name: "Astronaut", category: "characters" },
+  { id: "wizard", emoji: "🧙", name: "Wizard", category: "characters" },
+  { id: "robot", emoji: "🤖", name: "Robot", category: "characters" },
+  { id: "alien", emoji: "👽", name: "Alien", category: "characters" },
+  { id: "ghost", emoji: "👻", name: "Ghost", category: "characters" },
+  { id: "pirate", emoji: "🏴‍☠️", name: "Pirate", category: "characters" },
+  // Objeler
+  { id: "rocket", emoji: "🚀", name: "Rocket", category: "objects" },
+  { id: "fire", emoji: "🔥", name: "Fire", category: "objects" },
+  { id: "lightning", emoji: "⚡", name: "Lightning", category: "objects" },
+  { id: "diamond", emoji: "💎", name: "Diamond", category: "objects" },
+  { id: "crown", emoji: "👑", name: "Crown", category: "objects" },
+  { id: "star", emoji: "⭐", name: "Star", category: "objects" },
+  { id: "heart", emoji: "❤️", name: "Heart", category: "objects" },
+  { id: "crystal", emoji: "🔮", name: "Crystal Ball", category: "objects" },
+  // Varsayılan
+  { id: "default", emoji: "👤", name: "Default", category: "default" },
+];

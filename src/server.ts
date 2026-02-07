@@ -1,11 +1,13 @@
 import express, { Request, Response, NextFunction } from "express";
+import { createServer } from "http";
+import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
 import { db } from "./database-pg";
-import { SyncRequest, SyncResponse } from "./types";
+import { SyncRequest, SyncResponse, PREDEFINED_AVATARS } from "./types";
 import {
   generateSocialPost,
   generateWeeklySummary,
@@ -186,6 +188,9 @@ app.post(
       const weekTotal = await db.getWeekActivity(user.id);
       const friendsActivity = await db.getFriendsActivity(user.id);
 
+      // Check achievements (non-blocking)
+      const newAchievements = await db.checkAndUnlockAchievements(user.id);
+
       // Response
       const response: SyncResponse = {
         success: true,
@@ -196,6 +201,11 @@ app.post(
           friendsActivity: friendsActivity,
         },
       };
+
+      // Add new achievements to response if any
+      if (newAchievements.length > 0) {
+        (response as any).newAchievements = newAchievements;
+      }
 
       res.json(response);
     } catch (error) {
@@ -384,6 +394,7 @@ app.get("/api/user/me", authenticateApiKey, (req: Request, res: Response) => {
       id: user.id,
       username: user.username,
       email: user.email,
+      avatarId: user.avatarId,
       settings: user.settings,
       friendCount: user.friends.length,
     },
@@ -699,6 +710,7 @@ app.post(
           username: user.username,
           apiKey: user.apiKey,
           email: user.email,
+          avatarId: user.avatarId,
         },
         token,
       });
@@ -764,6 +776,7 @@ app.post(
           username: user.username,
           apiKey: user.apiKey,
           email: user.email,
+          avatarId: user.avatarId,
         },
         token,
       });
@@ -773,6 +786,188 @@ app.post(
         success: false,
         message: "Server error",
       });
+    }
+  },
+);
+
+// ==================== STATISTICS API ====================
+
+/**
+ * Get hourly activity (for heatmap)
+ */
+app.get(
+  "/api/activity/hourly",
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const days = Math.min(parseInt(req.query.days as string) || 7, 30);
+      const hours = await db.getHourlyActivity(user.id, days);
+
+      res.json({ success: true, hours });
+    } catch (error) {
+      console.error("[HOURLY ERROR]", error);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
+/**
+ * Get daily history (for contribution map)
+ */
+app.get(
+  "/api/activity/history",
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const days = Math.min(parseInt(req.query.days as string) || 365, 365);
+      const history = await db.getDailyHistory(user.id, days);
+
+      res.json({ success: true, days: history });
+    } catch (error) {
+      console.error("[HISTORY ERROR]", error);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
+/**
+ * Get language distribution (for pie chart)
+ */
+app.get(
+  "/api/activity/languages",
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+      const languages = await db.getLanguageDistribution(user.id, days);
+
+      res.json({ success: true, languages });
+    } catch (error) {
+      console.error("[LANGUAGES ERROR]", error);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
+// ==================== ACHIEVEMENTS API ====================
+
+/**
+ * Get all achievements
+ */
+app.get(
+  "/api/achievements",
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const achievements = await db.getAllAchievements();
+      res.json({ success: true, achievements });
+    } catch (error) {
+      console.error("[ACHIEVEMENTS ERROR]", error);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
+/**
+ * Get user's unlocked achievements
+ */
+app.get(
+  "/api/achievements/me",
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const achievements = await db.getUserAchievements(user.id);
+      res.json({ success: true, achievements });
+    } catch (error) {
+      console.error("[USER ACHIEVEMENTS ERROR]", error);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
+// ==================== AVATAR API ====================
+
+/**
+ * Get predefined avatars
+ */
+app.get("/api/avatars", (req: Request, res: Response) => {
+  res.json({ success: true, avatars: PREDEFINED_AVATARS });
+});
+
+/**
+ * Update user avatar
+ */
+app.patch(
+  "/api/user/avatar",
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { avatarId } = req.body;
+
+      if (!avatarId) {
+        res.status(400).json({ success: false, message: "avatarId is required" });
+        return;
+      }
+
+      await db.updateUserAvatar(user.id, avatarId);
+      res.json({ success: true, message: "Avatar updated", avatarId });
+    } catch (error: any) {
+      console.error("[AVATAR ERROR]", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update avatar",
+      });
+    }
+  },
+);
+
+// ==================== CHAT API (REST) ====================
+
+/**
+ * Get messages with a friend
+ */
+app.get(
+  "/api/messages/:friendId",
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { friendId } = req.params;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const before = req.query.before ? parseInt(req.query.before as string) : undefined;
+
+      const messages = await db.getMessages(user.id, friendId, limit, before);
+
+      // Mark messages as read
+      await db.markMessagesRead(user.id, friendId);
+
+      res.json({ success: true, messages });
+    } catch (error) {
+      console.error("[MESSAGES ERROR]", error);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
+/**
+ * Get unread message counts
+ */
+app.get(
+  "/api/messages/unread/counts",
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const unread = await db.getUnreadCounts(user.id);
+      res.json({ success: true, unread });
+    } catch (error) {
+      console.error("[UNREAD ERROR]", error);
+      res.status(500).json({ success: false, message: "Server error" });
     }
   },
 );
@@ -794,6 +989,117 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   });
 });
 
+// ==================== SOCKET.IO SETUP ====================
+
+const httpServer = createServer(app);
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: isProduction ? corsOrigins : "*",
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+});
+
+// Socket.io user tracking
+const connectedUsers = new Map<string, string>(); // userId -> socketId
+
+// Socket.io authentication middleware
+io.use(async (socket, next) => {
+  const apiKey = socket.handshake.auth.apiKey;
+  if (!apiKey) {
+    return next(new Error("API key required"));
+  }
+  try {
+    const user = await db.getUserByApiKey(apiKey);
+    if (!user) {
+      return next(new Error("Invalid API key"));
+    }
+    socket.data.user = user;
+    next();
+  } catch (error) {
+    next(new Error("Authentication failed"));
+  }
+});
+
+io.on("connection", (socket) => {
+  const user = socket.data.user;
+  console.log(`[WS] User connected: ${user.username} (${socket.id})`);
+
+  // Track connected user
+  connectedUsers.set(user.id, socket.id);
+
+  // Join user's own room for targeted messages
+  socket.join(`user:${user.id}`);
+
+  // Send message
+  socket.on("send_message", async (data: { toUserId: string; content: string }) => {
+    try {
+      const { toUserId, content } = data;
+
+      if (!content || !content.trim() || content.length > 1000) {
+        socket.emit("error", { message: "Invalid message content" });
+        return;
+      }
+
+      // Verify friendship
+      const friends = user.friends || [];
+      if (!friends.includes(toUserId)) {
+        // Reload user to get latest friends
+        const freshUser = await db.getUserById(user.id);
+        if (!freshUser || !freshUser.friends.includes(toUserId)) {
+          socket.emit("error", { message: "Not friends with this user" });
+          return;
+        }
+      }
+
+      const message = await db.saveMessage(user.id, toUserId, content.trim());
+
+      // Send to recipient if online
+      io.to(`user:${toUserId}`).emit("message_received", message);
+
+      // Confirm to sender
+      socket.emit("message_sent", message);
+    } catch (error) {
+      console.error("[WS] send_message error:", error);
+      socket.emit("error", { message: "Failed to send message" });
+    }
+  });
+
+  // Typing indicator
+  socket.on("typing", (data: { toUserId: string }) => {
+    io.to(`user:${data.toUserId}`).emit("typing", {
+      fromUserId: user.id,
+      fromUsername: user.username,
+    });
+  });
+
+  socket.on("stop_typing", (data: { toUserId: string }) => {
+    io.to(`user:${data.toUserId}`).emit("stop_typing", {
+      fromUserId: user.id,
+    });
+  });
+
+  // Mark messages as read
+  socket.on("mark_read", async (data: { fromUserId: string }) => {
+    try {
+      await db.markMessagesRead(user.id, data.fromUserId);
+      // Notify sender that messages were read
+      io.to(`user:${data.fromUserId}`).emit("messages_read", {
+        byUserId: user.id,
+      });
+    } catch (error) {
+      console.error("[WS] mark_read error:", error);
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`[WS] User disconnected: ${user.username}`);
+    connectedUsers.delete(user.id);
+  });
+});
+
 // Start server with database initialization
 async function startServer() {
   try {
@@ -801,9 +1107,9 @@ async function startServer() {
     await db.initialize();
     console.log("[DB] PostgreSQL connected successfully");
 
-    // Start Express server
+    // Start HTTP + WebSocket server
     const port = typeof PORT === "string" ? parseInt(PORT, 10) : PORT;
-    app.listen(port, "0.0.0.0", () => {
+    httpServer.listen(port, "0.0.0.0", () => {
       console.log("╔════════════════════════════════════════════════════╗");
       console.log("║            DevSocial Backend API                   ║");
       console.log("╠════════════════════════════════════════════════════╣");
@@ -813,6 +1119,7 @@ async function startServer() {
         `║  Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}                              ║`,
       );
       console.log("║  Database: PostgreSQL (Neon)                       ║");
+      console.log("║  WebSocket: Socket.io enabled                      ║");
       console.log("╚════════════════════════════════════════════════════╝");
     });
   } catch (error) {
